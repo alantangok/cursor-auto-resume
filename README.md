@@ -2,8 +2,17 @@
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 ![Version](https://img.shields.io/badge/Version-1.0.0-green.svg)
+![Tested with Cursor](https://img.shields.io/badge/Tested%20with%20Cursor-0.50.7-brightgreen.svg)
 
 A simple tool that automatically clicks the "resume the conversation" link when Cursor IDE hits its API rate limits.
+
+## Compatibility
+
+**✅ Tested and working with:**
+- Cursor 0.50.7 (Latest tested version)
+- Previous versions of Cursor IDE
+
+**Note:** This tool is designed to be compatible with current and future versions of Cursor IDE. If you encounter issues with newer versions, please report them in the Issues section.
 
 ## Important Note on Usage
 
@@ -74,6 +83,9 @@ The script:
 
 ### Is this safe to use?
 Yes, the script only runs in your Cursor IDE and only clicks the specific "resume the conversation" link when rate limits are hit. It doesn't modify any core functionality or bypass any security measures.
+
+### What versions of Cursor are supported?
+This tool has been tested and confirmed working with Cursor 0.50.7. It should work with most versions of Cursor IDE that use the standard rate limit interface.
 
 ### Will this work with future versions of Cursor?
 As long as Cursor continues to use similar rate limit messages and "resume the conversation" links, the script should continue to work. If Cursor's interface changes, we'll update the tool to maintain compatibility while respecting their service.
