@@ -348,6 +348,28 @@
     }
 
     /**
+     * Handle infinite loop by immediately inputting enhanced command
+     */
+    function handleInfiniteLoop() {
+        console.log('Cursor Auto Resume: Handling infinite "No content" loop immediately...');
+        
+        try {
+            const success = simulateUserInput('continue with /split and /limit');
+            if (success) {
+                console.log('Cursor Auto Resume: Successfully broke infinite loop with enhanced input');
+                state.lastNeverStopAction = Date.now();
+                return true;
+            } else {
+                console.log('Cursor Auto Resume: Failed to break infinite loop');
+                return false;
+            }
+        } catch (error) {
+            console.error('Cursor Auto Resume: Error handling infinite loop:', error);
+            return false;
+        }
+    }
+
+    /**
      * Check if last two "No content" responses indicate infinite loop
      */
     function isInfiniteNoContentLoop() {
@@ -465,23 +487,22 @@
             
             // Check for infinite no content loop
             const isNoContentLoop = isInfiniteNoContentLoop();
-            const inputText = isNoContentLoop ? 'continue with /split and /limit' : 'continue';
             
-            // Continue the conversation
             if (isNoContentLoop) {
-                console.log('Cursor Auto Resume: Detected infinite "No content" loop, using enhanced input...');
+                // Handle infinite loop immediately without delay
+                handleInfiniteLoop();
             } else {
+                // Continue normal conversation with delay
                 console.log('Cursor Auto Resume: Last text is not "end", continuing conversation...');
+                setTimeout(() => {
+                    if (simulateUserInput()) {
+                        console.log('Cursor Auto Resume: Successfully continued conversation with "continue"');
+                        state.lastNeverStopAction = now;
+                    } else {
+                        console.log('Cursor Auto Resume: Failed to continue conversation');
+                    }
+                }, CONFIG.SIMULATE_DELAY);
             }
-            
-            setTimeout(() => {
-                if (simulateUserInput(inputText)) {
-                    console.log(`Cursor Auto Resume: Successfully continued conversation with "${inputText}"`);
-                    state.lastNeverStopAction = now;
-                } else {
-                    console.log('Cursor Auto Resume: Failed to continue conversation');
-                }
-            }, CONFIG.SIMULATE_DELAY);
         }
         
         // Update previous state
@@ -568,6 +589,7 @@
     window.start_never_stop = startNeverStopChecker;
     window.test_no_content_detection = isInfiniteNoContentLoop;
     window.test_simulate_input = simulateUserInput;
+    window.handle_infinite_loop = handleInfiniteLoop;
     
     // Start the main loop
     state.intervalId = setInterval(mainLoop, 1000);
@@ -579,6 +601,6 @@
     console.log('Cursor Auto Resume: Will stop after 24 hours. Call click_reset() to reset timer.');
     console.log('Cursor Auto Resume: Never Stop Checker enabled. Type "end" to stop auto-continuation.');
     console.log('Cursor Auto Resume: Use toggle_never_stop() to toggle, stop_never_stop() to disable, start_never_stop() to enable.');
-    console.log('Cursor Auto Resume: Debug functions: test_no_content_detection(), test_simulate_input(text)');
+    console.log('Cursor Auto Resume: Debug functions: test_no_content_detection(), test_simulate_input(text), handle_infinite_loop()');
     
 })(); 
