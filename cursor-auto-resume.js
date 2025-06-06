@@ -352,8 +352,52 @@
      */
     function isInfiniteNoContentLoop() {
         try {
-            const noContentElements = document.querySelectorAll('span.composer-code-block-status span.fade-in');
+            console.log('Cursor Auto Resume: Checking for infinite No content loop...');
+            
+            // Multiple selector strategies for finding "No content" elements
+            const selectors = [
+                'span.composer-code-block-status span.fade-in',
+                'span.composer-code-block-status span',
+                '.composer-code-block-status .fade-in',
+                '.composer-code-block-status span',
+                'span.fade-in',
+                '[class*="composer-code-block"] span',
+                '[class*="fade-in"]'
+            ];
+            
+            let noContentElements = [];
+            
+            // Try each selector
+            for (const selector of selectors) {
+                try {
+                    const elements = document.querySelectorAll(selector);
+                    const filteredElements = Array.from(elements).filter(el => 
+                        el.textContent.trim().toLowerCase().includes('no content')
+                    );
+                    
+                    if (filteredElements.length > 0) {
+                        noContentElements = filteredElements;
+                        console.log(`Cursor Auto Resume: Found ${filteredElements.length} "No content" elements with selector: ${selector}`);
+                        break;
+                    }
+                } catch (e) {
+                    continue;
+                }
+            }
+            
+            // Fallback: search all elements containing "No content"
+            if (noContentElements.length === 0) {
+                console.log('Cursor Auto Resume: Using fallback method to find "No content" elements');
+                const allElements = document.querySelectorAll('*');
+                noContentElements = Array.from(allElements).filter(el => {
+                    const text = el.textContent.trim().toLowerCase();
+                    return text === 'no content' && el.children.length === 0; // Only leaf elements
+                });
+                console.log(`Cursor Auto Resume: Fallback found ${noContentElements.length} "No content" elements`);
+            }
+            
             if (noContentElements.length < 2) {
+                console.log('Cursor Auto Resume: Less than 2 "No content" elements found, no infinite loop detected');
                 return false;
             }
             
@@ -361,13 +405,21 @@
             const lastElement = noContentElements[noContentElements.length - 1];
             const secondLastElement = noContentElements[noContentElements.length - 2];
             
-            const lastText = lastElement.textContent.trim();
-            const secondLastText = secondLastElement.textContent.trim();
+            const lastText = lastElement.textContent.trim().toLowerCase();
+            const secondLastText = secondLastElement.textContent.trim().toLowerCase();
             
             console.log('Cursor Auto Resume: Last no-content text:', lastText);
             console.log('Cursor Auto Resume: Second last no-content text:', secondLastText);
             
-            return lastText === 'No content' && secondLastText === 'No content';
+            const isLoop = lastText.includes('no content') && secondLastText.includes('no content');
+            
+            if (isLoop) {
+                console.log('Cursor Auto Resume: Infinite "No content" loop detected!');
+            } else {
+                console.log('Cursor Auto Resume: No infinite loop detected');
+            }
+            
+            return isLoop;
         } catch (error) {
             console.error('Cursor Auto Resume: Error checking no content loop:', error);
             return false;
@@ -514,6 +566,8 @@
     window.toggle_never_stop = toggleNeverStopChecker;
     window.stop_never_stop = stopNeverStopChecker;
     window.start_never_stop = startNeverStopChecker;
+    window.test_no_content_detection = isInfiniteNoContentLoop;
+    window.test_simulate_input = simulateUserInput;
     
     // Start the main loop
     state.intervalId = setInterval(mainLoop, 1000);
@@ -525,5 +579,6 @@
     console.log('Cursor Auto Resume: Will stop after 24 hours. Call click_reset() to reset timer.');
     console.log('Cursor Auto Resume: Never Stop Checker enabled. Type "end" to stop auto-continuation.');
     console.log('Cursor Auto Resume: Use toggle_never_stop() to toggle, stop_never_stop() to disable, start_never_stop() to enable.');
+    console.log('Cursor Auto Resume: Debug functions: test_no_content_detection(), test_simulate_input(text)');
     
 })(); 
