@@ -35,7 +35,9 @@
         lastNeverStopAction: 0,
         previousSendButtonState: null,
         neverStopEnabled: true,
-        neverStopActivated: false
+        neverStopActivated: false,
+        lastNoContentHash: null,
+        noContentLoopCount: 0
     };
     
     // ===========================================
@@ -189,6 +191,8 @@
         state.lastNeverStopAction = 0;
         state.previousSendButtonState = null;
         state.neverStopActivated = false;
+        state.lastNoContentHash = null;
+        state.noContentLoopCount = 0;
         console.log('Cursor Auto Resume: Timer and counters reset');
     }
     
@@ -205,7 +209,9 @@
                 setTimeout(() => {
                     if (simulateUserInput('continue with /split and /limit')) {
                         console.log('Cursor Auto Resume: Successfully executed enhanced input while handling resume conversation');
-                        markNoContentElementsAsProcessed();
+                        // Reset the pattern detection after successful intervention
+                        state.lastNoContentHash = null;
+                        state.noContentLoopCount = 0;
                         state.lastNeverStopAction = now;
                     } else {
                         console.log('Cursor Auto Resume: Failed to execute enhanced input while handling resume conversation');
@@ -252,7 +258,9 @@
                 setTimeout(() => {
                     if (simulateUserInput('continue with /split and /limit')) {
                         console.log('Cursor Auto Resume: Successfully executed enhanced input during error handling');
-                        markNoContentElementsAsProcessed();
+                        // Reset the pattern detection after successful intervention
+                        state.lastNoContentHash = null;
+                        state.noContentLoopCount = 0;
                         state.lastNeverStopAction = now;
                     } else {
                         console.log('Cursor Auto Resume: Failed to execute enhanced input during error handling');
@@ -392,6 +400,9 @@
         try {
             console.log('Cursor Auto Resume: Checking for infinite No content loop...');
             
+            // Get current time for this check
+            const currentTime = Date.now();
+            
             // Multiple selector strategies for finding "No content" elements
             const selectors = [
                 'span.composer-code-block-status span.fade-in',
@@ -405,46 +416,18 @@
             
             let noContentElements = [];
             
-            // Try each selector
+            // Try each selector - but don't filter by marking, get all
             for (const selector of selectors) {
                 try {
                     const elements = document.querySelectorAll(selector);
                     const filteredElements = Array.from(elements).filter(el => {
                         const text = el.textContent.trim().toLowerCase();
-                        const hasNoContent = text.includes('no content');
-                        
-                        // Check if element or its ancestors are marked
-                        let isMarked = false;
-                        let checkElement = el;
-                        let level = 0;
-                        
-                        while (checkElement && level < 5) { // Check up to 5 levels
-                            if (checkElement.classList.contains('cursor-auto-resume-processed') ||
-                                checkElement.hasAttribute('data-cursor-auto-resume-processed')) {
-                                isMarked = true;
-                                break;
-                            }
-                            checkElement = checkElement.parentElement;
-                            level++;
-                        }
-                        
-                        // Also check child elements
-                        if (!isMarked) {
-                            const markedChildren = el.querySelectorAll('.cursor-auto-resume-processed, [data-cursor-auto-resume-processed]');
-                            isMarked = markedChildren.length > 0;
-                        }
-                        
-                        if (isMarked) {
-                            console.log(`Cursor Auto Resume: Skipping marked element: "${text}"`);
-                        }
-                        
-                        // Only include elements with "no content" that haven't been processed
-                        return hasNoContent && !isMarked;
+                        return text.includes('no content');
                     });
                     
                     if (filteredElements.length > 0) {
                         noContentElements = filteredElements;
-                        console.log(`Cursor Auto Resume: Found ${filteredElements.length} unprocessed "No content" elements with selector: ${selector}`);
+                        console.log(`Cursor Auto Resume: Found ${filteredElements.length} "No content" elements with selector: ${selector}`);
                         break;
                     }
                 } catch (e) {
@@ -458,107 +441,52 @@
                 const allElements = document.querySelectorAll('*');
                 noContentElements = Array.from(allElements).filter(el => {
                     const text = el.textContent.trim().toLowerCase();
-                    const hasNoContent = text === 'no content' && el.children.length === 0;
-                    
-                    // Check if element or its ancestors are marked
-                    let isMarked = false;
-                    let checkElement = el;
-                    let level = 0;
-                    
-                    while (checkElement && level < 5) { // Check up to 5 levels
-                        if (checkElement.classList.contains('cursor-auto-resume-processed') ||
-                            checkElement.hasAttribute('data-cursor-auto-resume-processed')) {
-                            isMarked = true;
-                            break;
-                        }
-                        checkElement = checkElement.parentElement;
-                        level++;
-                    }
-                    
-                    return hasNoContent && !isMarked;
+                    return text === 'no content' && el.children.length === 0;
                 });
-                console.log(`Cursor Auto Resume: Fallback found ${noContentElements.length} unprocessed "No content" elements`);
+                console.log(`Cursor Auto Resume: Fallback found ${noContentElements.length} "No content" elements`);
             }
             
             if (noContentElements.length < 2) {
-                console.log('Cursor Auto Resume: Less than 2 unprocessed "No content" elements found, no infinite loop detected');
+                console.log('Cursor Auto Resume: Less than 2 "No content" elements found, no infinite loop detected');
+                // Reset loop count if we don't have enough elements
+                state.noContentLoopCount = 0;
+                state.lastNoContentHash = null;
                 return false;
             }
             
-            // Check last two elements
-            const lastElement = noContentElements[noContentElements.length - 1];
-            const secondLastElement = noContentElements[noContentElements.length - 2];
+            // Create a content hash of the last few "No content" elements
+            const recentTexts = noContentElements.slice(-3).map(el => el.textContent.trim()).join('|');
+            const contentHash = btoa(recentTexts).slice(0, 20); // Simple hash
             
-            const lastText = lastElement.textContent.trim().toLowerCase();
-            const secondLastText = secondLastElement.textContent.trim().toLowerCase();
+            console.log('Cursor Auto Resume: Current content hash:', contentHash);
+            console.log('Cursor Auto Resume: Last content hash:', state.lastNoContentHash);
             
-            console.log('Cursor Auto Resume: Last no-content text:', lastText);
-            console.log('Cursor Auto Resume: Second last no-content text:', secondLastText);
-            
-            const isLoop = lastText.includes('no content') && secondLastText.includes('no content');
-            
-            if (isLoop) {
-                console.log('Cursor Auto Resume: Infinite "No content" loop detected!');
+            // Check if we've seen this exact pattern before
+            if (state.lastNoContentHash === contentHash) {
+                state.noContentLoopCount++;
+                console.log(`Cursor Auto Resume: Same pattern detected ${state.noContentLoopCount} times`);
+                
+                // If we've seen the same pattern 2+ times, it's likely a loop
+                if (state.noContentLoopCount >= 2) {
+                    console.log('Cursor Auto Resume: Infinite "No content" loop detected by pattern matching!');
+                    return true;
+                }
             } else {
-                console.log('Cursor Auto Resume: No infinite loop detected');
+                // New pattern, reset counter
+                state.noContentLoopCount = 1;
+                state.lastNoContentHash = contentHash;
+                console.log('Cursor Auto Resume: New pattern detected, resetting loop counter');
             }
             
-            return isLoop;
+            console.log('Cursor Auto Resume: No infinite loop detected');
+            return false;
         } catch (error) {
             console.error('Cursor Auto Resume: Error checking no content loop:', error);
             return false;
         }
     }
     
-    /**
-     * Mark "No content" elements as processed to prevent infinite loop
-     */
-    function markNoContentElementsAsProcessed() {
-        try {
-            console.log('Cursor Auto Resume: Marking No content elements as processed...');
-            
-            // Find and mark all "No content" elements
-            const allElements = document.querySelectorAll('*');
-            const noContentElements = Array.from(allElements).filter(el => {
-                const text = el.textContent.trim().toLowerCase();
-                return text === 'no content' && el.children.length === 0; // Only leaf elements
-            });
-            
-            console.log(`Cursor Auto Resume: Found ${noContentElements.length} "No content" leaf elements to mark`);
-            
-            let markedCount = 0;
-            
-            // Mark all "No content" elements and their containers
-            noContentElements.forEach((el, index) => {
-                // Mark the element itself
-                el.classList.add('cursor-auto-resume-processed');
-                el.setAttribute('data-cursor-auto-resume-processed', Date.now().toString());
-                
-                // Mark parent elements that might contain the status
-                let parent = el.parentElement;
-                let level = 0;
-                while (parent && level < 3) { // Go up 3 levels
-                    if (parent.classList.contains('composer-code-block-status') || 
-                        parent.className.includes('composer-code-block')) {
-                        parent.classList.add('cursor-auto-resume-processed');
-                        parent.setAttribute('data-cursor-auto-resume-processed', Date.now().toString());
-                        console.log(`Cursor Auto Resume: Marked parent element at level ${level}:`, parent.className);
-                    }
-                    parent = parent.parentElement;
-                    level++;
-                }
-                
-                markedCount++;
-                console.log(`Cursor Auto Resume: Marked element ${index + 1}: "${el.textContent.trim()}" with classes: ${el.className}`);
-            });
-            
-            console.log(`Cursor Auto Resume: Successfully marked ${markedCount} "No content" elements and their containers`);
-            return markedCount > 0;
-        } catch (error) {
-            console.error('Cursor Auto Resume: Error marking elements as processed:', error);
-            return false;
-        }
-    }
+
     
     /**
      * Handle never stop logic when generation stops
@@ -611,9 +539,10 @@
             setTimeout(() => {
                 if (simulateUserInput(inputText)) {
                     console.log(`Cursor Auto Resume: Successfully continued conversation with "${inputText}"`);
-                    // Mark elements as processed if we used enhanced input
+                    // Reset pattern detection if we used enhanced input
                     if (isNoContentLoop) {
-                        markNoContentElementsAsProcessed();
+                        state.lastNoContentHash = null;
+                        state.noContentLoopCount = 0;
                     }
                     state.lastNeverStopAction = now;
                 } else {
@@ -692,13 +621,15 @@
             if (now - state.lastNeverStopAction >= CONFIG.NEVER_STOP_COOLDOWN) {
                 console.log('Cursor Auto Resume: Infinite "No content" loop detected in main loop, taking immediate action...');
                 setTimeout(() => {
-                    if (simulateUserInput('continue with /split and /limit')) {
-                        console.log('Cursor Auto Resume: Successfully executed enhanced input to break loop');
-                        markNoContentElementsAsProcessed();
-                        state.lastNeverStopAction = now;
-                    } else {
-                        console.log('Cursor Auto Resume: Failed to execute enhanced input');
-                    }
+                                    if (simulateUserInput('continue with /split and /limit')) {
+                    console.log('Cursor Auto Resume: Successfully executed enhanced input to break loop');
+                    // Reset the pattern detection after successful intervention
+                    state.lastNoContentHash = null;
+                    state.noContentLoopCount = 0;
+                    state.lastNeverStopAction = now;
+                } else {
+                    console.log('Cursor Auto Resume: Failed to execute enhanced input');
+                }
                 }, CONFIG.SIMULATE_DELAY);
                 return;
             }
@@ -725,15 +656,17 @@
     window.start_never_stop = startNeverStopChecker;
     window.test_no_content_detection = isInfiniteNoContentLoop;
     window.test_simulate_input = simulateUserInput;
-    window.mark_no_content_processed = markNoContentElementsAsProcessed;
-    window.clear_no_content_marks = function() {
-        const markedElements = document.querySelectorAll('.cursor-auto-resume-processed, [data-cursor-auto-resume-processed]');
-        markedElements.forEach(el => {
-            el.classList.remove('cursor-auto-resume-processed');
-            el.removeAttribute('data-cursor-auto-resume-processed');
-        });
-        console.log(`Cursor Auto Resume: Cleared ${markedElements.length} marked elements`);
-        return markedElements.length;
+    window.reset_no_content_detection = function() {
+        state.lastNoContentHash = null;
+        state.noContentLoopCount = 0;
+        console.log('Cursor Auto Resume: Reset no content pattern detection');
+    };
+    window.get_no_content_state = function() {
+        return {
+            lastHash: state.lastNoContentHash,
+            loopCount: state.noContentLoopCount,
+            activated: state.neverStopActivated
+        };
     };
     
     // Start the main loop
@@ -746,6 +679,6 @@
     console.log('Cursor Auto Resume: Will stop after 24 hours. Call click_reset() to reset timer.');
     console.log('Cursor Auto Resume: Never Stop Checker enabled. Type "end" to stop auto-continuation.');
     console.log('Cursor Auto Resume: Use toggle_never_stop() to toggle, stop_never_stop() to disable, start_never_stop() to enable.');
-    console.log('Cursor Auto Resume: Debug functions: test_no_content_detection(), test_simulate_input(text), mark_no_content_processed(), clear_no_content_marks()');
+    console.log('Cursor Auto Resume: Debug functions: test_no_content_detection(), test_simulate_input(text), reset_no_content_detection(), get_no_content_state()');
     
 })(); 
