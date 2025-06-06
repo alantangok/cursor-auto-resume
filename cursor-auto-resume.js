@@ -2,7 +2,7 @@
 (function() {
     'use strict';
     
-    console.log('Cursor Auto Resume: Running');
+    console.log('Cursor Auto Resume: Running with Never Stop Checker');
     
     // ===========================================
     // Configuration Constants
@@ -15,7 +15,9 @@
         MAX_SIMULATE_ATTEMPTS: 3,                // Max simulate attempts before alert
         MAX_DURATION: 24 * 60 * 60 * 1000,     // 24 hours runtime
         INPUT_DELAY: 100,                        // Delay before pressing Enter
-        SIMULATE_DELAY: 1000                     // Delay before simulate input
+        SIMULATE_DELAY: 1000,                    // Delay before simulate input
+        NEVER_STOP_CHECK_INTERVAL: 2000,        // Check send button state every 2 seconds
+        NEVER_STOP_COOLDOWN: 3000               // Cooldown between never stop actions
     };
     
     // ===========================================
@@ -28,7 +30,11 @@
         lastRetryClickTime: 0,
         simulateInputAttempts: 0,
         lastSimulateInputTime: 0,
-        intervalId: null
+        intervalId: null,
+        neverStopIntervalId: null,
+        lastNeverStopAction: 0,
+        previousSendButtonState: null,
+        neverStopEnabled: true
     };
     
     // ===========================================
@@ -179,6 +185,8 @@
         state.lastRetryClickTime = 0;
         state.simulateInputAttempts = 0;
         state.lastSimulateInputTime = 0;
+        state.lastNeverStopAction = 0;
+        state.previousSendButtonState = null;
         console.log('Cursor Auto Resume: Timer and counters reset');
     }
     
@@ -240,6 +248,151 @@
     }
     
     // ===========================================
+    // Never Stop Checker Functions
+    // ===========================================
+    
+    /**
+     * Get the current state of the send button
+     */
+    function getSendButtonState() {
+        try {
+            const sendButton = document.querySelector('#workbench\\.panel\\.aichat\\.e4fd208d-79ce-4d2f-acf0-d5e73f471b3b > div > div > div.monaco-scrollable-element.mac > div.split-view-container > div > div > div.pane-body > div > div > div:nth-child(2) > div.full-input-box.undefined > div:nth-child(2) > div:nth-child(2) > div > div > div > div.button-container.composer-button-area > div:nth-child(2) > span');
+            
+            if (!sendButton) {
+                return null;
+            }
+            
+            const span = sendButton.querySelector('span');
+            if (!span) {
+                return null;
+            }
+            
+            // Check if it's stop state (debug-stop icon)
+            if (span.classList.contains('codicon-debug-stop')) {
+                return 'generating';
+            }
+            
+            // Check if it's ready state (arrow-up icon)
+            if (span.classList.contains('codicon-arrow-up-two')) {
+                return 'ready';
+            }
+            
+            return 'unknown';
+        } catch (error) {
+            console.error('Cursor Auto Resume: Error getting send button state:', error);
+            return null;
+        }
+    }
+    
+    /**
+     * Check if the last text content is "end"
+     */
+    function isLastTextContentEnd() {
+        try {
+            const textSpans = document.querySelectorAll('span[data-lexical-text="true"]');
+            if (textSpans.length === 0) {
+                return false;
+            }
+            
+            const lastSpan = textSpans[textSpans.length - 1];
+            const textContent = lastSpan.textContent.trim().toLowerCase();
+            
+            console.log('Cursor Auto Resume: Last text content:', textContent);
+            return textContent === 'end';
+        } catch (error) {
+            console.error('Cursor Auto Resume: Error checking last text content:', error);
+            return false;
+        }
+    }
+    
+    /**
+     * Handle never stop logic when generation stops
+     */
+    function handleNeverStopCheck() {
+        const now = Date.now();
+        
+        // Check cooldown
+        if (now - state.lastNeverStopAction < CONFIG.NEVER_STOP_COOLDOWN) {
+            return;
+        }
+        
+        const currentButtonState = getSendButtonState();
+        
+        // If we can't detect the button state, skip this check
+        if (!currentButtonState) {
+            return;
+        }
+        
+        // Detect transition from generating to ready
+        if (state.previousSendButtonState === 'generating' && currentButtonState === 'ready') {
+            console.log('Cursor Auto Resume: Generation stopped, checking if should continue...');
+            
+            // Check if last text content is "end"
+            if (isLastTextContentEnd()) {
+                console.log('Cursor Auto Resume: Last text is "end", stopping never stop checker');
+                state.neverStopEnabled = false;
+                return;
+            }
+            
+            // Continue the conversation
+            console.log('Cursor Auto Resume: Last text is not "end", continuing conversation...');
+            setTimeout(() => {
+                if (simulateUserInput()) {
+                    console.log('Cursor Auto Resume: Successfully continued conversation');
+                    state.lastNeverStopAction = now;
+                } else {
+                    console.log('Cursor Auto Resume: Failed to continue conversation');
+                }
+            }, CONFIG.SIMULATE_DELAY);
+        }
+        
+        // Update previous state
+        state.previousSendButtonState = currentButtonState;
+    }
+    
+    /**
+     * Start the never stop checker
+     */
+    function startNeverStopChecker() {
+        if (state.neverStopIntervalId) {
+            clearInterval(state.neverStopIntervalId);
+        }
+        
+        state.neverStopIntervalId = setInterval(() => {
+            if (state.neverStopEnabled) {
+                handleNeverStopCheck();
+            }
+        }, CONFIG.NEVER_STOP_CHECK_INTERVAL);
+        
+        console.log('Cursor Auto Resume: Never stop checker started');
+    }
+    
+    /**
+     * Stop the never stop checker
+     */
+    function stopNeverStopChecker() {
+        if (state.neverStopIntervalId) {
+            clearInterval(state.neverStopIntervalId);
+            state.neverStopIntervalId = null;
+        }
+        state.neverStopEnabled = false;
+        console.log('Cursor Auto Resume: Never stop checker stopped');
+    }
+    
+    /**
+     * Toggle never stop checker
+     */
+    function toggleNeverStopChecker() {
+        if (state.neverStopEnabled) {
+            stopNeverStopChecker();
+        } else {
+            state.neverStopEnabled = true;
+            startNeverStopChecker();
+        }
+        return state.neverStopEnabled;
+    }
+    
+    // ===========================================
     // Main Loop
     // ===========================================
     
@@ -270,13 +423,21 @@
     // Initialization
     // ===========================================
     
-    // Make reset function available globally
+    // Make functions available globally
     window.click_reset = resetState;
+    window.toggle_never_stop = toggleNeverStopChecker;
+    window.stop_never_stop = stopNeverStopChecker;
+    window.start_never_stop = startNeverStopChecker;
     
     // Start the main loop
     state.intervalId = setInterval(mainLoop, 1000);
     mainLoop(); // Run once immediately
     
+    // Start the never stop checker
+    startNeverStopChecker();
+    
     console.log('Cursor Auto Resume: Will stop after 24 hours. Call click_reset() to reset timer.');
+    console.log('Cursor Auto Resume: Never Stop Checker enabled. Type "end" to stop auto-continuation.');
+    console.log('Cursor Auto Resume: Use toggle_never_stop() to toggle, stop_never_stop() to disable, start_never_stop() to enable.');
     
 })(); 
