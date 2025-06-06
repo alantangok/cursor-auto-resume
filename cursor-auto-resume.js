@@ -412,8 +412,31 @@
                     const filteredElements = Array.from(elements).filter(el => {
                         const text = el.textContent.trim().toLowerCase();
                         const hasNoContent = text.includes('no content');
-                        const isMarked = el.classList.contains('cursor-auto-resume-processed') || 
-                                        (el.parentElement && el.parentElement.classList.contains('cursor-auto-resume-processed'));
+                        
+                        // Check if element or its ancestors are marked
+                        let isMarked = false;
+                        let checkElement = el;
+                        let level = 0;
+                        
+                        while (checkElement && level < 5) { // Check up to 5 levels
+                            if (checkElement.classList.contains('cursor-auto-resume-processed') ||
+                                checkElement.hasAttribute('data-cursor-auto-resume-processed')) {
+                                isMarked = true;
+                                break;
+                            }
+                            checkElement = checkElement.parentElement;
+                            level++;
+                        }
+                        
+                        // Also check child elements
+                        if (!isMarked) {
+                            const markedChildren = el.querySelectorAll('.cursor-auto-resume-processed, [data-cursor-auto-resume-processed]');
+                            isMarked = markedChildren.length > 0;
+                        }
+                        
+                        if (isMarked) {
+                            console.log(`Cursor Auto Resume: Skipping marked element: "${text}"`);
+                        }
                         
                         // Only include elements with "no content" that haven't been processed
                         return hasNoContent && !isMarked;
@@ -436,8 +459,21 @@
                 noContentElements = Array.from(allElements).filter(el => {
                     const text = el.textContent.trim().toLowerCase();
                     const hasNoContent = text === 'no content' && el.children.length === 0;
-                    const isMarked = el.classList.contains('cursor-auto-resume-processed') || 
-                                    (el.parentElement && el.parentElement.classList.contains('cursor-auto-resume-processed'));
+                    
+                    // Check if element or its ancestors are marked
+                    let isMarked = false;
+                    let checkElement = el;
+                    let level = 0;
+                    
+                    while (checkElement && level < 5) { // Check up to 5 levels
+                        if (checkElement.classList.contains('cursor-auto-resume-processed') ||
+                            checkElement.hasAttribute('data-cursor-auto-resume-processed')) {
+                            isMarked = true;
+                            break;
+                        }
+                        checkElement = checkElement.parentElement;
+                        level++;
+                    }
                     
                     return hasNoContent && !isMarked;
                 });
@@ -479,39 +515,44 @@
      */
     function markNoContentElementsAsProcessed() {
         try {
-            const selectors = [
-                'span.composer-code-block-status',
-                '.composer-code-block-status',
-                '[class*="composer-code-block"]'
-            ];
+            console.log('Cursor Auto Resume: Marking No content elements as processed...');
+            
+            // Find and mark all "No content" elements
+            const allElements = document.querySelectorAll('*');
+            const noContentElements = Array.from(allElements).filter(el => {
+                const text = el.textContent.trim().toLowerCase();
+                return text === 'no content' && el.children.length === 0; // Only leaf elements
+            });
+            
+            console.log(`Cursor Auto Resume: Found ${noContentElements.length} "No content" leaf elements to mark`);
             
             let markedCount = 0;
             
-            for (const selector of selectors) {
-                try {
-                    const elements = document.querySelectorAll(selector);
-                    const noContentElements = Array.from(elements).filter(el => {
-                        const text = el.textContent.trim().toLowerCase();
-                        return text.includes('no content');
-                    });
-                    
-                    // Mark the last two elements
-                    if (noContentElements.length >= 2) {
-                        const lastElement = noContentElements[noContentElements.length - 1];
-                        const secondLastElement = noContentElements[noContentElements.length - 2];
-                        
-                        lastElement.classList.add('cursor-auto-resume-processed');
-                        secondLastElement.classList.add('cursor-auto-resume-processed');
-                        markedCount += 2;
-                        
-                        console.log(`Cursor Auto Resume: Marked last 2 "No content" elements as processed`);
-                        break;
+            // Mark all "No content" elements and their containers
+            noContentElements.forEach((el, index) => {
+                // Mark the element itself
+                el.classList.add('cursor-auto-resume-processed');
+                el.setAttribute('data-cursor-auto-resume-processed', Date.now().toString());
+                
+                // Mark parent elements that might contain the status
+                let parent = el.parentElement;
+                let level = 0;
+                while (parent && level < 3) { // Go up 3 levels
+                    if (parent.classList.contains('composer-code-block-status') || 
+                        parent.className.includes('composer-code-block')) {
+                        parent.classList.add('cursor-auto-resume-processed');
+                        parent.setAttribute('data-cursor-auto-resume-processed', Date.now().toString());
+                        console.log(`Cursor Auto Resume: Marked parent element at level ${level}:`, parent.className);
                     }
-                } catch (e) {
-                    continue;
+                    parent = parent.parentElement;
+                    level++;
                 }
-            }
+                
+                markedCount++;
+                console.log(`Cursor Auto Resume: Marked element ${index + 1}: "${el.textContent.trim()}" with classes: ${el.className}`);
+            });
             
+            console.log(`Cursor Auto Resume: Successfully marked ${markedCount} "No content" elements and their containers`);
             return markedCount > 0;
         } catch (error) {
             console.error('Cursor Auto Resume: Error marking elements as processed:', error);
@@ -685,6 +726,15 @@
     window.test_no_content_detection = isInfiniteNoContentLoop;
     window.test_simulate_input = simulateUserInput;
     window.mark_no_content_processed = markNoContentElementsAsProcessed;
+    window.clear_no_content_marks = function() {
+        const markedElements = document.querySelectorAll('.cursor-auto-resume-processed, [data-cursor-auto-resume-processed]');
+        markedElements.forEach(el => {
+            el.classList.remove('cursor-auto-resume-processed');
+            el.removeAttribute('data-cursor-auto-resume-processed');
+        });
+        console.log(`Cursor Auto Resume: Cleared ${markedElements.length} marked elements`);
+        return markedElements.length;
+    };
     
     // Start the main loop
     state.intervalId = setInterval(mainLoop, 1000);
@@ -696,6 +746,6 @@
     console.log('Cursor Auto Resume: Will stop after 24 hours. Call click_reset() to reset timer.');
     console.log('Cursor Auto Resume: Never Stop Checker enabled. Type "end" to stop auto-continuation.');
     console.log('Cursor Auto Resume: Use toggle_never_stop() to toggle, stop_never_stop() to disable, start_never_stop() to enable.');
-    console.log('Cursor Auto Resume: Debug functions: test_no_content_detection(), test_simulate_input(text), mark_no_content_processed()');
+    console.log('Cursor Auto Resume: Debug functions: test_no_content_detection(), test_simulate_input(text), mark_no_content_processed(), clear_no_content_marks()');
     
 })(); 
