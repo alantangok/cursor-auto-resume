@@ -258,15 +258,55 @@
      */
     function getSendButtonState() {
         try {
-            const sendButton = document.querySelector('#workbench\\.panel\\.aichat\\.e4fd208d-79ce-4d2f-acf0-d5e73f471b3b > div > div > div.monaco-scrollable-element.mac > div.split-view-container > div > div > div.pane-body > div > div > div:nth-child(2) > div.full-input-box.undefined > div:nth-child(2) > div:nth-child(2) > div > div > div > div.button-container.composer-button-area > div:nth-child(2) > span');
+            // Try multiple selectors for better compatibility
+            const selectors = [
+                // Original specific selector
+                '#workbench\\.panel\\.aichat\\.e4fd208d-79ce-4d2f-acf0-d5e73f471b3b > div > div > div.monaco-scrollable-element.mac > div.split-view-container > div > div > div.pane-body > div > div > div:nth-child(2) > div.full-input-box.undefined > div:nth-child(2) > div:nth-child(2) > div > div > div > div.button-container.composer-button-area > div:nth-child(2) > span',
+                // More generic selectors
+                'div.button-container.composer-button-area > div:nth-child(2) > span',
+                'div.button-container.composer-button-area > div:last-child > span',
+                '.button-container.composer-button-area span.codicon',
+                '.composer-button-area span.codicon',
+                '.full-input-box span.codicon-debug-stop',
+                '.full-input-box span.codicon-arrow-up-two'
+            ];
             
-            if (!sendButton) {
-                return null;
+            let sendButton = null;
+            let span = null;
+            
+            // Try each selector until we find a match
+            for (const selector of selectors) {
+                try {
+                    const element = document.querySelector(selector);
+                    if (element) {
+                        if (element.tagName === 'SPAN') {
+                            span = element;
+                        } else {
+                            span = element.querySelector('span');
+                        }
+                        
+                        if (span && (span.classList.contains('codicon-debug-stop') || span.classList.contains('codicon-arrow-up-two'))) {
+                            sendButton = element;
+                            break;
+                        }
+                    }
+                } catch (e) {
+                    continue;
+                }
             }
             
-            const span = sendButton.querySelector('span');
-            if (!span) {
-                return null;
+            if (!sendButton || !span) {
+                // Try fallback: find any span with the specific classes
+                const stopSpan = document.querySelector('span.codicon-debug-stop');
+                const arrowSpan = document.querySelector('span.codicon-arrow-up-two');
+                
+                if (stopSpan) {
+                    span = stopSpan;
+                } else if (arrowSpan) {
+                    span = arrowSpan;
+                } else {
+                    return null;
+                }
             }
             
             // Check if it's stop state (debug-stop icon)
