@@ -45,7 +45,7 @@
     /**
      * Simulate user input in the AI editor
      */
-    function simulateUserInput() {
+    function simulateUserInput(inputText = 'continue') {
         try {
             const inputDiv = document.querySelector('div.aislash-editor-input');
             if (!inputDiv) {
@@ -61,7 +61,7 @@
             console.log('Cursor Auto Resume: Clicked input div');
             
             // Set content using multiple approaches
-            const text = 'continue';
+            const text = inputText;
             inputDiv.textContent = text;
             inputDiv.innerText = text;
             if (inputDiv.contentEditable === 'true') {
@@ -88,7 +88,7 @@
                 });
             });
             
-            console.log('Cursor Auto Resume: Typed "continue"');
+            console.log(`Cursor Auto Resume: Typed "${text}"`);
             
             // Simulate Enter key after delay
             setTimeout(() => {
@@ -346,6 +346,33 @@
             return false;
         }
     }
+
+    /**
+     * Check if last two "No content" responses indicate infinite loop
+     */
+    function isInfiniteNoContentLoop() {
+        try {
+            const noContentElements = document.querySelectorAll('span.composer-code-block-status span.fade-in');
+            if (noContentElements.length < 2) {
+                return false;
+            }
+            
+            // Check last two elements
+            const lastElement = noContentElements[noContentElements.length - 1];
+            const secondLastElement = noContentElements[noContentElements.length - 2];
+            
+            const lastText = lastElement.textContent.trim();
+            const secondLastText = secondLastElement.textContent.trim();
+            
+            console.log('Cursor Auto Resume: Last no-content text:', lastText);
+            console.log('Cursor Auto Resume: Second last no-content text:', secondLastText);
+            
+            return lastText === 'No content' && secondLastText === 'No content';
+        } catch (error) {
+            console.error('Cursor Auto Resume: Error checking no content loop:', error);
+            return false;
+        }
+    }
     
     /**
      * Handle never stop logic when generation stops
@@ -384,11 +411,20 @@
                 return;
             }
             
+            // Check for infinite no content loop
+            const isNoContentLoop = isInfiniteNoContentLoop();
+            const inputText = isNoContentLoop ? 'continue with /split and /limit' : 'continue';
+            
             // Continue the conversation
-            console.log('Cursor Auto Resume: Last text is not "end", continuing conversation...');
+            if (isNoContentLoop) {
+                console.log('Cursor Auto Resume: Detected infinite "No content" loop, using enhanced input...');
+            } else {
+                console.log('Cursor Auto Resume: Last text is not "end", continuing conversation...');
+            }
+            
             setTimeout(() => {
-                if (simulateUserInput()) {
-                    console.log('Cursor Auto Resume: Successfully continued conversation');
+                if (simulateUserInput(inputText)) {
+                    console.log(`Cursor Auto Resume: Successfully continued conversation with "${inputText}"`);
                     state.lastNeverStopAction = now;
                 } else {
                     console.log('Cursor Auto Resume: Failed to continue conversation');
