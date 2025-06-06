@@ -34,7 +34,8 @@
         neverStopIntervalId: null,
         lastNeverStopAction: 0,
         previousSendButtonState: null,
-        neverStopEnabled: true
+        neverStopEnabled: true,
+        neverStopActivated: false
     };
     
     // ===========================================
@@ -187,6 +188,7 @@
         state.lastSimulateInputTime = 0;
         state.lastNeverStopAction = 0;
         state.previousSendButtonState = null;
+        state.neverStopActivated = false;
         console.log('Cursor Auto Resume: Timer and counters reset');
     }
     
@@ -311,11 +313,6 @@
     function handleNeverStopCheck() {
         const now = Date.now();
         
-        // Check cooldown
-        if (now - state.lastNeverStopAction < CONFIG.NEVER_STOP_COOLDOWN) {
-            return;
-        }
-        
         const currentButtonState = getSendButtonState();
         
         // If we can't detect the button state, skip this check
@@ -323,14 +320,27 @@
             return;
         }
         
-        // Detect transition from generating to ready
-        if (state.previousSendButtonState === 'generating' && currentButtonState === 'ready') {
+        // Detect transition from ready to generating (user started generation)
+        if (state.previousSendButtonState === 'ready' && currentButtonState === 'generating') {
+            console.log('Cursor Auto Resume: Generation started, never stop checker activated');
+            state.neverStopActivated = true;
+        }
+        
+        // Detect transition from generating to ready (generation stopped)
+        if (state.previousSendButtonState === 'generating' && currentButtonState === 'ready' && state.neverStopActivated) {
+            // Check cooldown
+            if (now - state.lastNeverStopAction < CONFIG.NEVER_STOP_COOLDOWN) {
+                state.previousSendButtonState = currentButtonState;
+                return;
+            }
+            
             console.log('Cursor Auto Resume: Generation stopped, checking if should continue...');
             
             // Check if last text content is "end"
             if (isLastTextContentEnd()) {
                 console.log('Cursor Auto Resume: Last text is "end", stopping never stop checker');
                 state.neverStopEnabled = false;
+                state.neverStopActivated = false;
                 return;
             }
             
