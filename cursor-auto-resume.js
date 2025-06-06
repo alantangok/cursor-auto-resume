@@ -197,13 +197,15 @@
      */
     function handleResumeConversation() {
         // First check for infinite no content loop
-        if (state.neverStopEnabled && isInfiniteNoContentLoop()) {
+        // Only check if user has started generation and never stop is activated
+        if (state.neverStopEnabled && state.neverStopActivated && isInfiniteNoContentLoop()) {
             const now = Date.now();
             if (now - state.lastNeverStopAction >= CONFIG.NEVER_STOP_COOLDOWN) {
                 console.log('Cursor Auto Resume: Infinite "No content" loop detected while looking for resume links, using enhanced input...');
                 setTimeout(() => {
                     if (simulateUserInput('continue with /split and /limit')) {
                         console.log('Cursor Auto Resume: Successfully executed enhanced input while handling resume conversation');
+                        markNoContentElementsAsProcessed();
                         state.lastNeverStopAction = now;
                     } else {
                         console.log('Cursor Auto Resume: Failed to execute enhanced input while handling resume conversation');
@@ -242,13 +244,15 @@
      */
     function handleErrorRetries() {
         // First check for infinite no content loop in error context
-        if (state.neverStopEnabled && isInfiniteNoContentLoop()) {
+        // Only check if user has started generation and never stop is activated
+        if (state.neverStopEnabled && state.neverStopActivated && isInfiniteNoContentLoop()) {
             const now = Date.now();
             if (now - state.lastNeverStopAction >= CONFIG.NEVER_STOP_COOLDOWN) {
                 console.log('Cursor Auto Resume: Infinite "No content" loop detected during error handling, using enhanced input...');
                 setTimeout(() => {
                     if (simulateUserInput('continue with /split and /limit')) {
                         console.log('Cursor Auto Resume: Successfully executed enhanced input during error handling');
+                        markNoContentElementsAsProcessed();
                         state.lastNeverStopAction = now;
                     } else {
                         console.log('Cursor Auto Resume: Failed to execute enhanced input during error handling');
@@ -405,13 +409,19 @@
             for (const selector of selectors) {
                 try {
                     const elements = document.querySelectorAll(selector);
-                    const filteredElements = Array.from(elements).filter(el => 
-                        el.textContent.trim().toLowerCase().includes('no content')
-                    );
+                    const filteredElements = Array.from(elements).filter(el => {
+                        const text = el.textContent.trim().toLowerCase();
+                        const hasNoContent = text.includes('no content');
+                        const isMarked = el.classList.contains('cursor-auto-resume-processed') || 
+                                        (el.parentElement && el.parentElement.classList.contains('cursor-auto-resume-processed'));
+                        
+                        // Only include elements with "no content" that haven't been processed
+                        return hasNoContent && !isMarked;
+                    });
                     
                     if (filteredElements.length > 0) {
                         noContentElements = filteredElements;
-                        console.log(`Cursor Auto Resume: Found ${filteredElements.length} "No content" elements with selector: ${selector}`);
+                        console.log(`Cursor Auto Resume: Found ${filteredElements.length} unprocessed "No content" elements with selector: ${selector}`);
                         break;
                     }
                 } catch (e) {
@@ -425,13 +435,17 @@
                 const allElements = document.querySelectorAll('*');
                 noContentElements = Array.from(allElements).filter(el => {
                     const text = el.textContent.trim().toLowerCase();
-                    return text === 'no content' && el.children.length === 0; // Only leaf elements
+                    const hasNoContent = text === 'no content' && el.children.length === 0;
+                    const isMarked = el.classList.contains('cursor-auto-resume-processed') || 
+                                    (el.parentElement && el.parentElement.classList.contains('cursor-auto-resume-processed'));
+                    
+                    return hasNoContent && !isMarked;
                 });
-                console.log(`Cursor Auto Resume: Fallback found ${noContentElements.length} "No content" elements`);
+                console.log(`Cursor Auto Resume: Fallback found ${noContentElements.length} unprocessed "No content" elements`);
             }
             
             if (noContentElements.length < 2) {
-                console.log('Cursor Auto Resume: Less than 2 "No content" elements found, no infinite loop detected');
+                console.log('Cursor Auto Resume: Less than 2 unprocessed "No content" elements found, no infinite loop detected');
                 return false;
             }
             
@@ -456,6 +470,51 @@
             return isLoop;
         } catch (error) {
             console.error('Cursor Auto Resume: Error checking no content loop:', error);
+            return false;
+        }
+    }
+    
+    /**
+     * Mark "No content" elements as processed to prevent infinite loop
+     */
+    function markNoContentElementsAsProcessed() {
+        try {
+            const selectors = [
+                'span.composer-code-block-status',
+                '.composer-code-block-status',
+                '[class*="composer-code-block"]'
+            ];
+            
+            let markedCount = 0;
+            
+            for (const selector of selectors) {
+                try {
+                    const elements = document.querySelectorAll(selector);
+                    const noContentElements = Array.from(elements).filter(el => {
+                        const text = el.textContent.trim().toLowerCase();
+                        return text.includes('no content');
+                    });
+                    
+                    // Mark the last two elements
+                    if (noContentElements.length >= 2) {
+                        const lastElement = noContentElements[noContentElements.length - 1];
+                        const secondLastElement = noContentElements[noContentElements.length - 2];
+                        
+                        lastElement.classList.add('cursor-auto-resume-processed');
+                        secondLastElement.classList.add('cursor-auto-resume-processed');
+                        markedCount += 2;
+                        
+                        console.log(`Cursor Auto Resume: Marked last 2 "No content" elements as processed`);
+                        break;
+                    }
+                } catch (e) {
+                    continue;
+                }
+            }
+            
+            return markedCount > 0;
+        } catch (error) {
+            console.error('Cursor Auto Resume: Error marking elements as processed:', error);
             return false;
         }
     }
@@ -511,6 +570,10 @@
             setTimeout(() => {
                 if (simulateUserInput(inputText)) {
                     console.log(`Cursor Auto Resume: Successfully continued conversation with "${inputText}"`);
+                    // Mark elements as processed if we used enhanced input
+                    if (isNoContentLoop) {
+                        markNoContentElementsAsProcessed();
+                    }
                     state.lastNeverStopAction = now;
                 } else {
                     console.log('Cursor Auto Resume: Failed to continue conversation');
@@ -582,13 +645,15 @@
         }
         
         // Check for infinite no content loop first (highest priority)
-        if (state.neverStopEnabled && isInfiniteNoContentLoop()) {
+        // Only check if user has started generation and never stop is activated
+        if (state.neverStopEnabled && state.neverStopActivated && isInfiniteNoContentLoop()) {
             // Check cooldown before taking action
             if (now - state.lastNeverStopAction >= CONFIG.NEVER_STOP_COOLDOWN) {
                 console.log('Cursor Auto Resume: Infinite "No content" loop detected in main loop, taking immediate action...');
                 setTimeout(() => {
                     if (simulateUserInput('continue with /split and /limit')) {
                         console.log('Cursor Auto Resume: Successfully executed enhanced input to break loop');
+                        markNoContentElementsAsProcessed();
                         state.lastNeverStopAction = now;
                     } else {
                         console.log('Cursor Auto Resume: Failed to execute enhanced input');
@@ -619,6 +684,7 @@
     window.start_never_stop = startNeverStopChecker;
     window.test_no_content_detection = isInfiniteNoContentLoop;
     window.test_simulate_input = simulateUserInput;
+    window.mark_no_content_processed = markNoContentElementsAsProcessed;
     
     // Start the main loop
     state.intervalId = setInterval(mainLoop, 1000);
@@ -630,6 +696,6 @@
     console.log('Cursor Auto Resume: Will stop after 24 hours. Call click_reset() to reset timer.');
     console.log('Cursor Auto Resume: Never Stop Checker enabled. Type "end" to stop auto-continuation.');
     console.log('Cursor Auto Resume: Use toggle_never_stop() to toggle, stop_never_stop() to disable, start_never_stop() to enable.');
-    console.log('Cursor Auto Resume: Debug functions: test_no_content_detection(), test_simulate_input(text)');
+    console.log('Cursor Auto Resume: Debug functions: test_no_content_detection(), test_simulate_input(text), mark_no_content_processed()');
     
 })(); 
