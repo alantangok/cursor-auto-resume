@@ -35,9 +35,7 @@
         lastNeverStopAction: 0,
         previousSendButtonState: null,
         neverStopEnabled: true,
-        neverStopActivated: false,
-        lastNoContentHash: null,
-        noContentLoopCount: 0
+        neverStopActivated: false
     };
     
     // ===========================================
@@ -191,8 +189,6 @@
         state.lastNeverStopAction = 0;
         state.previousSendButtonState = null;
         state.neverStopActivated = false;
-        state.lastNoContentHash = null;
-        state.noContentLoopCount = 0;
         console.log('Cursor Auto Resume: Timer and counters reset');
     }
     
@@ -209,9 +205,6 @@
                 setTimeout(() => {
                     if (simulateUserInput('continue with /split and /limit')) {
                         console.log('Cursor Auto Resume: Successfully executed enhanced input while handling resume conversation');
-                        // Reset the pattern detection after successful intervention
-                        state.lastNoContentHash = null;
-                        state.noContentLoopCount = 0;
                         state.lastNeverStopAction = now;
                     } else {
                         console.log('Cursor Auto Resume: Failed to execute enhanced input while handling resume conversation');
@@ -258,9 +251,6 @@
                 setTimeout(() => {
                     if (simulateUserInput('continue with /split and /limit')) {
                         console.log('Cursor Auto Resume: Successfully executed enhanced input during error handling');
-                        // Reset the pattern detection after successful intervention
-                        state.lastNoContentHash = null;
-                        state.noContentLoopCount = 0;
                         state.lastNeverStopAction = now;
                     } else {
                         console.log('Cursor Auto Resume: Failed to execute enhanced input during error handling');
@@ -394,14 +384,45 @@
     }
 
     /**
+     * Check if user has already input the enhanced command
+     */
+    function hasUserInputEnhancedCommand() {
+        try {
+            const textSpans = document.querySelectorAll('span[data-lexical-text="true"]');
+            if (textSpans.length === 0) {
+                return false;
+            }
+            
+            // Check if any recent text spans contain the enhanced command
+            const recentSpans = Array.from(textSpans).slice(-5); // Check last 5 text spans
+            const hasEnhancedCommand = recentSpans.some(span => {
+                const text = span.textContent.trim().toLowerCase();
+                return text.includes('continue with /split and /limit');
+            });
+            
+            if (hasEnhancedCommand) {
+                console.log('Cursor Auto Resume: User has already input enhanced command, skipping automatic input');
+                return true;
+            }
+            
+            return false;
+        } catch (error) {
+            console.error('Cursor Auto Resume: Error checking enhanced command:', error);
+            return false;
+        }
+    }
+
+    /**
      * Check if last two "No content" responses indicate infinite loop
      */
     function isInfiniteNoContentLoop() {
         try {
             console.log('Cursor Auto Resume: Checking for infinite No content loop...');
             
-            // Get current time for this check
-            const currentTime = Date.now();
+            // First check if user has already input the enhanced command
+            if (hasUserInputEnhancedCommand()) {
+                return false;
+            }
             
             // Multiple selector strategies for finding "No content" elements
             const selectors = [
@@ -416,7 +437,7 @@
             
             let noContentElements = [];
             
-            // Try each selector - but don't filter by marking, get all
+            // Try each selector
             for (const selector of selectors) {
                 try {
                     const elements = document.querySelectorAll(selector);
@@ -448,38 +469,28 @@
             
             if (noContentElements.length < 2) {
                 console.log('Cursor Auto Resume: Less than 2 "No content" elements found, no infinite loop detected');
-                // Reset loop count if we don't have enough elements
-                state.noContentLoopCount = 0;
-                state.lastNoContentHash = null;
                 return false;
             }
             
-            // Create a content hash of the last few "No content" elements
-            const recentTexts = noContentElements.slice(-3).map(el => el.textContent.trim()).join('|');
-            const contentHash = btoa(recentTexts).slice(0, 20); // Simple hash
+            // Check last two elements for "No content"
+            const lastElement = noContentElements[noContentElements.length - 1];
+            const secondLastElement = noContentElements[noContentElements.length - 2];
             
-            console.log('Cursor Auto Resume: Current content hash:', contentHash);
-            console.log('Cursor Auto Resume: Last content hash:', state.lastNoContentHash);
+            const lastText = lastElement.textContent.trim().toLowerCase();
+            const secondLastText = secondLastElement.textContent.trim().toLowerCase();
             
-            // Check if we've seen this exact pattern before
-            if (state.lastNoContentHash === contentHash) {
-                state.noContentLoopCount++;
-                console.log(`Cursor Auto Resume: Same pattern detected ${state.noContentLoopCount} times`);
-                
-                // If we've seen the same pattern 2+ times, it's likely a loop
-                if (state.noContentLoopCount >= 2) {
-                    console.log('Cursor Auto Resume: Infinite "No content" loop detected by pattern matching!');
-                    return true;
-                }
+            console.log('Cursor Auto Resume: Last no-content text:', lastText);
+            console.log('Cursor Auto Resume: Second last no-content text:', secondLastText);
+            
+            const isLoop = lastText.includes('no content') && secondLastText.includes('no content');
+            
+            if (isLoop) {
+                console.log('Cursor Auto Resume: Infinite "No content" loop detected!');
             } else {
-                // New pattern, reset counter
-                state.noContentLoopCount = 1;
-                state.lastNoContentHash = contentHash;
-                console.log('Cursor Auto Resume: New pattern detected, resetting loop counter');
+                console.log('Cursor Auto Resume: No infinite loop detected');
             }
             
-            console.log('Cursor Auto Resume: No infinite loop detected');
-            return false;
+            return isLoop;
         } catch (error) {
             console.error('Cursor Auto Resume: Error checking no content loop:', error);
             return false;
@@ -539,11 +550,6 @@
             setTimeout(() => {
                 if (simulateUserInput(inputText)) {
                     console.log(`Cursor Auto Resume: Successfully continued conversation with "${inputText}"`);
-                    // Reset pattern detection if we used enhanced input
-                    if (isNoContentLoop) {
-                        state.lastNoContentHash = null;
-                        state.noContentLoopCount = 0;
-                    }
                     state.lastNeverStopAction = now;
                 } else {
                     console.log('Cursor Auto Resume: Failed to continue conversation');
@@ -623,9 +629,6 @@
                 setTimeout(() => {
                                     if (simulateUserInput('continue with /split and /limit')) {
                     console.log('Cursor Auto Resume: Successfully executed enhanced input to break loop');
-                    // Reset the pattern detection after successful intervention
-                    state.lastNoContentHash = null;
-                    state.noContentLoopCount = 0;
                     state.lastNeverStopAction = now;
                 } else {
                     console.log('Cursor Auto Resume: Failed to execute enhanced input');
@@ -656,16 +659,11 @@
     window.start_never_stop = startNeverStopChecker;
     window.test_no_content_detection = isInfiniteNoContentLoop;
     window.test_simulate_input = simulateUserInput;
-    window.reset_no_content_detection = function() {
-        state.lastNoContentHash = null;
-        state.noContentLoopCount = 0;
-        console.log('Cursor Auto Resume: Reset no content pattern detection');
-    };
+    window.check_enhanced_command = hasUserInputEnhancedCommand;
     window.get_no_content_state = function() {
         return {
-            lastHash: state.lastNoContentHash,
-            loopCount: state.noContentLoopCount,
-            activated: state.neverStopActivated
+            activated: state.neverStopActivated,
+            hasEnhancedCommand: hasUserInputEnhancedCommand()
         };
     };
     
@@ -679,6 +677,6 @@
     console.log('Cursor Auto Resume: Will stop after 24 hours. Call click_reset() to reset timer.');
     console.log('Cursor Auto Resume: Never Stop Checker enabled. Type "end" to stop auto-continuation.');
     console.log('Cursor Auto Resume: Use toggle_never_stop() to toggle, stop_never_stop() to disable, start_never_stop() to enable.');
-    console.log('Cursor Auto Resume: Debug functions: test_no_content_detection(), test_simulate_input(text), reset_no_content_detection(), get_no_content_state()');
+    console.log('Cursor Auto Resume: Debug functions: test_no_content_detection(), test_simulate_input(text), check_enhanced_command(), get_no_content_state()');
     
 })(); 
