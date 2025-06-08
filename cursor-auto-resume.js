@@ -17,7 +17,8 @@
         INPUT_DELAY: 100,                        // Delay before pressing Enter
         SIMULATE_DELAY: 1000,                    // Delay before simulate input
         NEVER_STOP_CHECK_INTERVAL: 2000,        // Check send button state every 2 seconds
-        NEVER_STOP_COOLDOWN: 3000               // Cooldown between never stop actions
+        NEVER_STOP_COOLDOWN: 3000,              // Cooldown between never stop actions
+        ENHANCED_COMMAND_COOLDOWN: 60000        // 1 minute cooldown for enhanced commands
     };
     
     // ===========================================
@@ -35,13 +36,23 @@
         lastNeverStopAction: 0,
         previousSendButtonState: null,
         neverStopEnabled: true,
-        neverStopActivated: false
+        neverStopActivated: false,
+        lastEnhancedCommandTime: 0
     };
     
     // ===========================================
     // Core Functions
     // ===========================================
     
+    /**
+     * Check if the input text is an enhanced command that needs extra cooldown
+     */
+    function isEnhancedCommand(inputText) {
+        const text = inputText.toLowerCase();
+        return text.includes('mcp interactive_feedback') || 
+               text.includes('/split and /limit');
+    }
+
     /**
      * Simulate user input in the AI editor
      */
@@ -89,6 +100,12 @@
             });
             
             console.log(`Cursor Auto Resume: Typed "${text}"`);
+            
+            // Record enhanced command execution time
+            if (isEnhancedCommand(inputText)) {
+                state.lastEnhancedCommandTime = Date.now();
+                console.log('Cursor Auto Resume: Enhanced command executed, 1-minute cooldown activated');
+            }
             
             // Simulate Enter key after delay
             setTimeout(() => {
@@ -189,6 +206,7 @@
         state.lastNeverStopAction = 0;
         state.previousSendButtonState = null;
         state.neverStopActivated = false;
+        state.lastEnhancedCommandTime = 0;
         console.log('Cursor Auto Resume: Timer and counters reset');
     }
     
@@ -200,6 +218,14 @@
         // Only check if user has started generation and never stop is activated
         if (state.neverStopEnabled && state.neverStopActivated && isInfiniteNoContentLoop()) {
             const now = Date.now();
+            
+            // Check enhanced command cooldown first
+            if (now - state.lastEnhancedCommandTime < CONFIG.ENHANCED_COMMAND_COOLDOWN) {
+                const remainingTime = Math.ceil((CONFIG.ENHANCED_COMMAND_COOLDOWN - (now - state.lastEnhancedCommandTime)) / 1000);
+                console.log(`Cursor Auto Resume: Enhanced command cooldown active, ${remainingTime} seconds remaining`);
+                return false;
+            }
+            
             if (now - state.lastNeverStopAction >= CONFIG.NEVER_STOP_COOLDOWN) {
                 console.log('Cursor Auto Resume: Infinite "No content" loop detected while looking for resume links, using enhanced input...');
                 setTimeout(() => {
@@ -246,6 +272,14 @@
         // Only check if user has started generation and never stop is activated
         if (state.neverStopEnabled && state.neverStopActivated && isInfiniteNoContentLoop()) {
             const now = Date.now();
+            
+            // Check enhanced command cooldown first
+            if (now - state.lastEnhancedCommandTime < CONFIG.ENHANCED_COMMAND_COOLDOWN) {
+                const remainingTime = Math.ceil((CONFIG.ENHANCED_COMMAND_COOLDOWN - (now - state.lastEnhancedCommandTime)) / 1000);
+                console.log(`Cursor Auto Resume: Enhanced command cooldown active, ${remainingTime} seconds remaining`);
+                return false;
+            }
+            
             if (now - state.lastNeverStopAction >= CONFIG.NEVER_STOP_COOLDOWN) {
                 console.log('Cursor Auto Resume: Infinite "No content" loop detected during error handling, using enhanced input...');
                 setTimeout(() => {
@@ -540,6 +574,13 @@
             const isNoContentLoop = isInfiniteNoContentLoop();
             const inputText = isNoContentLoop ? 'continue with /split and /limit' : 'continue with call MCP interactive_feedback';
             
+            // Check enhanced command cooldown if using enhanced commands
+            if (isEnhancedCommand(inputText) && now - state.lastEnhancedCommandTime < CONFIG.ENHANCED_COMMAND_COOLDOWN) {
+                const remainingTime = Math.ceil((CONFIG.ENHANCED_COMMAND_COOLDOWN - (now - state.lastEnhancedCommandTime)) / 1000);
+                console.log(`Cursor Auto Resume: Enhanced command cooldown active, ${remainingTime} seconds remaining`);
+                return;
+            }
+            
             // Continue the conversation
             if (isNoContentLoop) {
                 console.log('Cursor Auto Resume: Detected infinite "No content" loop, using enhanced input...');
@@ -620,19 +661,26 @@
             return;
         }
         
-        // Check for infinite no content loop first (highest priority)
+                // Check for infinite no content loop first (highest priority)
         // Only check if user has started generation and never stop is activated
         if (state.neverStopEnabled && state.neverStopActivated && isInfiniteNoContentLoop()) {
-            // Check cooldown before taking action
+            // Check enhanced command cooldown first
+            if (now - state.lastEnhancedCommandTime < CONFIG.ENHANCED_COMMAND_COOLDOWN) {
+                const remainingTime = Math.ceil((CONFIG.ENHANCED_COMMAND_COOLDOWN - (now - state.lastEnhancedCommandTime)) / 1000);
+                console.log(`Cursor Auto Resume: Enhanced command cooldown active, ${remainingTime} seconds remaining`);
+                return;
+            }
+            
+            // Check regular cooldown before taking action
             if (now - state.lastNeverStopAction >= CONFIG.NEVER_STOP_COOLDOWN) {
                 console.log('Cursor Auto Resume: Infinite "No content" loop detected in main loop, taking immediate action...');
                 setTimeout(() => {
-                                    if (simulateUserInput('continue with /split and /limit')) {
-                    console.log('Cursor Auto Resume: Successfully executed enhanced input to break loop');
-                    state.lastNeverStopAction = now;
-                } else {
-                    console.log('Cursor Auto Resume: Failed to execute enhanced input');
-                }
+                    if (simulateUserInput('continue with /split and /limit')) {
+                        console.log('Cursor Auto Resume: Successfully executed enhanced input to break loop');
+                        state.lastNeverStopAction = now;
+                    } else {
+                        console.log('Cursor Auto Resume: Failed to execute enhanced input');
+                    }
                 }, CONFIG.SIMULATE_DELAY);
                 return;
             }
@@ -661,9 +709,13 @@
     window.test_simulate_input = simulateUserInput;
     window.check_enhanced_command = hasUserInputEnhancedCommand;
     window.get_no_content_state = function() {
+        const now = Date.now();
+        const enhancedCooldownRemaining = Math.max(0, CONFIG.ENHANCED_COMMAND_COOLDOWN - (now - state.lastEnhancedCommandTime));
         return {
             activated: state.neverStopActivated,
-            hasEnhancedCommand: hasUserInputEnhancedCommand()
+            hasEnhancedCommand: hasUserInputEnhancedCommand(),
+            lastEnhancedCommandTime: state.lastEnhancedCommandTime,
+            enhancedCooldownRemaining: Math.ceil(enhancedCooldownRemaining / 1000)
         };
     };
     
@@ -676,6 +728,7 @@
     
     console.log('Cursor Auto Resume: Will stop after 24 hours. Call click_reset() to reset timer.');
     console.log('Cursor Auto Resume: Never Stop Checker enabled. Type "end" to stop auto-continuation.');
+    console.log('Cursor Auto Resume: Enhanced commands have 1-minute cooldown: "continue with call MCP interactive_feedback" and "continue with /split and /limit"');
     console.log('Cursor Auto Resume: Use toggle_never_stop() to toggle, stop_never_stop() to disable, start_never_stop() to enable.');
     console.log('Cursor Auto Resume: Debug functions: test_no_content_detection(), test_simulate_input(text), check_enhanced_command(), get_no_content_state()');
     
