@@ -45,7 +45,7 @@
     /**
      * Simulate user input in the AI editor
      */
-    function simulateUserInput(inputText = 'continue') {
+    function simulateUserInput(inputText = 'continue with call MCP interactive_feedback') {
         try {
             const inputDiv = document.querySelector('div.aislash-editor-input');
             if (!inputDiv) {
@@ -538,7 +538,7 @@
             
             // Check for infinite no content loop
             const isNoContentLoop = isInfiniteNoContentLoop();
-            const inputText = isNoContentLoop ? 'continue with /split and /limit' : 'continue';
+            const inputText = isNoContentLoop ? 'continue with /split and /limit' : 'continue with call MCP interactive_feedback';
             
             // Continue the conversation
             if (isNoContentLoop) {
