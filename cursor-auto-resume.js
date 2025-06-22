@@ -37,7 +37,10 @@
         previousSendButtonState: null,
         neverStopEnabled: true,
         neverStopActivated: false,
-        lastEnhancedCommandTime: 0
+        lastEnhancedCommandTime: 0,
+        endCount: 0,
+        lastEndCountCheckTime: 0,
+        lastEndCountIncrease: 0
     };
     
     // ===========================================
@@ -207,6 +210,9 @@
         state.previousSendButtonState = null;
         state.neverStopActivated = false;
         state.lastEnhancedCommandTime = 0;
+        state.endCount = 0;
+        state.lastEndCountCheckTime = 0;
+        state.lastEndCountIncrease = 0;
         console.log('Cursor Auto Resume: Timer and counters reset');
     }
     
@@ -324,6 +330,42 @@
     // ===========================================
     
     /**
+     * Add event listener to detect stop button clicks
+     */
+    function addStopButtonHandler() {
+        // Use event delegation on document to catch dynamically created elements
+        document.addEventListener('click', function(event) {
+            const target = event.target;
+            
+            // Check if clicked element is a stop button
+            if (target && target.tagName === 'SPAN' && target.classList.contains('codicon-debug-stop')) {
+                console.log('Cursor Auto Resume: User clicked stop button, disabling auto resume...');
+                
+                // Stop all auto resume functionality
+                if (state.intervalId) {
+                    clearInterval(state.intervalId);
+                    state.intervalId = null;
+                }
+                
+                stopNeverStopChecker();
+                
+                // Reset state
+                state.neverStopActivated = false;
+                state.neverStopEnabled = false;
+                
+                console.log('Cursor Auto Resume: Auto resume completely stopped by user action');
+                
+                // Show confirmation
+                setTimeout(() => {
+                    console.log('Cursor Auto Resume: All automatic functions disabled. Use start_never_stop() to re-enable if needed.');
+                }, 1000);
+            }
+        }, true); // Use capture phase to catch the event early
+        
+        console.log('Cursor Auto Resume: Stop button handler added');
+    }
+    
+    /**
      * Get the current state of the send button
      */
     function getSendButtonState() {
@@ -413,6 +455,70 @@
             return textContent === 'end';
         } catch (error) {
             console.error('Cursor Auto Resume: Error checking last text content:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Count {end} occurrences in the conversation
+     */
+    function countEndOccurrences() {
+        try {
+            const textSpans = document.querySelectorAll('span[data-lexical-text="true"]');
+            let endCount = 0;
+            
+            for (const span of textSpans) {
+                const text = span.textContent.trim().toLowerCase();
+                // Count both "end" and "{end}" patterns
+                if (text === 'end' || text === '{end}') {
+                    endCount++;
+                }
+            }
+            
+            return endCount;
+        } catch (error) {
+            console.error('Cursor Auto Resume: Error counting end occurrences:', error);
+            return 0;
+        }
+    }
+
+    /**
+     * Check if {end} count has increased in recent 5 seconds
+     */
+    function hasEndCountIncreasedRecently() {
+        try {
+            const now = Date.now();
+            const currentEndCount = countEndOccurrences();
+            
+            // If this is the first check, initialize
+            if (state.lastEndCountCheckTime === 0) {
+                state.endCount = currentEndCount;
+                state.lastEndCountCheckTime = now;
+                return false;
+            }
+            
+            // Check if count has increased
+            if (currentEndCount > state.endCount) {
+                console.log(`Cursor Auto Resume: {end} count increased from ${state.endCount} to ${currentEndCount}`);
+                state.endCount = currentEndCount;
+                state.lastEndCountIncrease = now;
+                state.lastEndCountCheckTime = now;
+                return true;
+            }
+            
+            // Update tracking variables
+            state.endCount = currentEndCount;
+            state.lastEndCountCheckTime = now;
+            
+            // Check if increase happened within last 5 seconds
+            if (state.lastEndCountIncrease > 0 && (now - state.lastEndCountIncrease) <= 5000) {
+                console.log('Cursor Auto Resume: {end} count increased within last 5 seconds, preventing auto-continuation');
+                return true;
+            }
+            
+            return false;
+        } catch (error) {
+            console.error('Cursor Auto Resume: Error checking end count increase:', error);
             return false;
         }
     }
@@ -570,6 +676,12 @@
                 return;
             }
             
+            // Check if {end} count has increased recently
+            if (hasEndCountIncreasedRecently()) {
+                console.log('Cursor Auto Resume: {end} count increased recently, skipping auto-continuation');
+                return;
+            }
+            
             // Check for infinite no content loop
             const isNoContentLoop = isInfiniteNoContentLoop();
             const inputText = isNoContentLoop ? 'continue with /split and /limit' : 'continue with call MCP interactive_feedback';
@@ -708,6 +820,8 @@
     window.test_no_content_detection = isInfiniteNoContentLoop;
     window.test_simulate_input = simulateUserInput;
     window.check_enhanced_command = hasUserInputEnhancedCommand;
+    window.test_end_count = countEndOccurrences;
+    window.check_end_increase = hasEndCountIncreasedRecently;
     window.get_no_content_state = function() {
         const now = Date.now();
         const enhancedCooldownRemaining = Math.max(0, CONFIG.ENHANCED_COMMAND_COOLDOWN - (now - state.lastEnhancedCommandTime));
@@ -731,5 +845,9 @@
     console.log('Cursor Auto Resume: Enhanced commands have 1-minute cooldown: "continue with call MCP interactive_feedback" and "continue with /split and /limit"');
     console.log('Cursor Auto Resume: Use toggle_never_stop() to toggle, stop_never_stop() to disable, start_never_stop() to enable.');
     console.log('Cursor Auto Resume: Debug functions: test_no_content_detection(), test_simulate_input(text), check_enhanced_command(), get_no_content_state()');
+    console.log('Cursor Auto Resume: End tracking functions: test_end_count(), check_end_increase()');
+    
+    // Add stop button handler
+    addStopButtonHandler();
     
 })(); 
